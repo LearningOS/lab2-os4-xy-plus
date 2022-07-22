@@ -14,7 +14,9 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
+use crate::config::PAGE_SIZE;
 use crate::loader::{get_app_data, get_num_app};
+use crate::mm::{MapPermission, MemorySet, PageTable};
 use crate::sync::UPSafeCell;
 use crate::syscall::TaskInfo;
 use crate::timer::get_time_us;
@@ -129,6 +131,54 @@ impl TaskManager {
         inner.tasks[inner.current_task].get_trap_cx()
     }
 
+    /// mmap
+    fn mmap(&self, start: usize, len: usize, port: usize) -> isize {
+        if start % PAGE_SIZE != 0 {
+            return -1;
+        }
+        if port & !0x7 != 0 {
+            return -1;
+        }
+        if port & 0x7 == 0 {
+            return -1;
+        }
+        let mut inner = self.inner.exclusive_access();
+        let current_task = inner.current_task;
+        let permission = MapPermission::from_bits(((port << 1) | 16) as u8).unwrap();
+        for vpn in (start / PAGE_SIZE)..((start + len - 1) / PAGE_SIZE + 1) {
+            if inner.tasks[current_task].memory_set.is_map(vpn.into()) {
+                return -1;
+            }
+            inner.tasks[current_task].memory_set.insert_framed_area(
+                (vpn * PAGE_SIZE).into(),
+                ((vpn + 1) * PAGE_SIZE).into(),
+                permission,
+            );
+        }
+        0
+    }
+
+    // munmap
+    fn munmap(&self, start: usize, len: usize) -> isize {
+        if start % PAGE_SIZE != 0 || len % PAGE_SIZE != 0 {
+            return -1;
+        }
+        let mut inner = self.inner.exclusive_access();
+        let current_task = inner.current_task;
+
+        for vpn in (start / PAGE_SIZE)..((start + len - 1) / PAGE_SIZE + 1) {
+            if !inner.tasks[current_task].memory_set.is_map(vpn.into()) {
+                return -1;
+            }
+        }
+        for vpn in (start / PAGE_SIZE)..((start + len - 1) / PAGE_SIZE + 1) {
+            inner.tasks[current_task]
+                .memory_set
+                .remove_map_area(vpn.into());
+        }
+        0
+    }
+
     /// Switch current `Running` task to the task we have found,
     /// or there is no `Ready` task and we can exit with all applications completed
     fn run_next_task(&self) {
@@ -170,6 +220,14 @@ impl TaskManager {
 
 pub fn get_current_task_info(ti: *mut TaskInfo) -> isize {
     TASK_MANAGER.get_current_task_info(ti)
+}
+
+pub fn mmap(start: usize, len: usize, port: usize) -> isize {
+    TASK_MANAGER.mmap(start, len, port)
+}
+
+pub fn munmap(start: usize, len: usize) -> isize {
+    TASK_MANAGER.munmap(start, len)
 }
 
 pub fn update_current_task_syscall_times(syscall_id: usize) {

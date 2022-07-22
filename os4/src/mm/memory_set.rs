@@ -59,6 +59,9 @@ impl MemorySet {
             None,
         );
     }
+    pub fn remove_map_area(&mut self, vpn: VirtPageNum) {
+        self.areas[0].unmap_one(&mut self.page_table, vpn);
+    }
     fn push(&mut self, mut map_area: MapArea, data: Option<&[u8]>) {
         map_area.map(&mut self.page_table);
         if let Some(data) = data {
@@ -217,6 +220,14 @@ impl MemorySet {
     pub fn translate(&self, vpn: VirtPageNum) -> Option<PageTableEntry> {
         self.page_table.translate(vpn)
     }
+    pub fn is_map(&self, vpn: VirtPageNum) -> bool {
+        if let Some(pte) = self.translate(vpn) {
+            if pte.is_valid() {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 /// map area structure, controls a contiguous piece of virtual memory
@@ -273,6 +284,12 @@ impl MapArea {
         for vpn in self.vpn_range {
             self.map_one(page_table, vpn);
         }
+    }
+    pub fn is_map(&self, vpn: VirtPageNum) -> bool {
+        if let Some(_) = self.data_frames.get(&vpn) {
+            return true;
+        }
+        false
     }
     #[allow(unused)]
     pub fn unmap(&mut self, page_table: &mut PageTable) {
