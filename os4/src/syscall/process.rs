@@ -3,7 +3,8 @@
 use crate::config::MAX_SYSCALL_NUM;
 use crate::mm::translated_refmut;
 use crate::task::{
-    current_user_token, exit_current_and_run_next, suspend_current_and_run_next, TaskStatus,
+    current_user_token, exit_current_and_run_next, get_current_task_info,
+    suspend_current_and_run_next, TaskStatus,
 };
 use crate::timer::get_time_us;
 
@@ -37,9 +38,9 @@ pub fn sys_yield() -> isize {
 pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
     let us = get_time_us();
     let token = current_user_token();
-    let arg_str_ptr = translated_refmut(token, ts);
+    let ts = translated_refmut(token, ts);
     unsafe {
-        *arg_str_ptr = TimeVal {
+        *ts = TimeVal {
             sec: us / 1_000_000,
             usec: us % 1_000_000,
         };
@@ -63,5 +64,8 @@ pub fn sys_munmap(_start: usize, _len: usize) -> isize {
 
 // YOUR JOB: 引入虚地址后重写 sys_task_info
 pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
-    -1
+    let token = current_user_token();
+    let ti = translated_refmut(token, ti);
+    get_current_task_info(ti);
+    0
 }

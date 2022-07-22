@@ -16,6 +16,8 @@ mod task;
 
 use crate::loader::{get_app_data, get_num_app};
 use crate::sync::UPSafeCell;
+use crate::syscall::TaskInfo;
+use crate::timer::get_time_us;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
 use lazy_static::*;
@@ -147,6 +149,31 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+
+    fn get_current_task_info(&self, ti: *mut TaskInfo) -> isize {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        unsafe {
+            (*ti).status = inner.tasks[current].task_info.status;
+            (*ti).time = (get_time_us() - inner.tasks[current].task_info.time) / 1000;
+            (*ti).syscall_times = inner.tasks[current].task_info.syscall_times;
+        }
+        0
+    }
+
+    fn update_current_task_syscall_times(&self, syscall_id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].task_info.syscall_times[syscall_id] += 1;
+    }
+}
+
+pub fn get_current_task_info(ti: *mut TaskInfo) -> isize {
+    TASK_MANAGER.get_current_task_info(ti)
+}
+
+pub fn update_current_task_syscall_times(syscall_id: usize) {
+    TASK_MANAGER.update_current_task_syscall_times(syscall_id);
 }
 
 /// Run the first task in task list.
